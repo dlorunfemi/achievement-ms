@@ -1,6 +1,9 @@
 <?php
 
+use App\Domain\Achievements\Models\UserAchievement;
 use App\Domain\Cashback\Enums\PayoutStatus;
+use App\Domain\Cashback\Models\Cashback;
+use App\Domain\Ordering\Models\Order;
 use App\Domain\Ordering\Models\Product;
 use App\Models\User;
 use Database\Seeders\AchievementSeeder;
@@ -25,6 +28,36 @@ it('refuses to seed demo cashbacks against a real payment provider', function ()
     app(DemoSeeder::class)->run();
 
     expect(User::query()->count())->toBe(0);
+});
+
+/**
+ * The container entrypoint runs "migrate --seed" on every boot, and the compose
+ * stack keeps its database in a named volume, so the second "docker compose up"
+ * seeds a store that already exists. Re-seeding used to abort on the duplicate
+ * email, which killed the app container.
+ */
+it('can be re-run over a store it already seeded', function () {
+    $this->seed([AchievementSeeder::class, BadgeSeeder::class, DemoSeeder::class]);
+
+    $before = [
+        'users' => User::query()->count(),
+        'products' => Product::query()->count(),
+        'orders' => Order::query()->count(),
+        'achievements' => UserAchievement::query()->count(),
+        'cashbacks' => Cashback::query()->count(),
+    ];
+
+    app(DemoSeeder::class)->run();
+
+    // Replaying purchases would double an order count and push a shopper onto a
+    // badge their profile never meant them to hold, so nothing may move.
+    expect([
+        'users' => User::query()->count(),
+        'products' => Product::query()->count(),
+        'orders' => Order::query()->count(),
+        'achievements' => UserAchievement::query()->count(),
+        'cashbacks' => Cashback::query()->count(),
+    ])->toBe($before);
 });
 
 it('builds a store whose state the real chain produced', function () {

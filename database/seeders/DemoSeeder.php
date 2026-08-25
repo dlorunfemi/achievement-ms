@@ -165,6 +165,19 @@ class DemoSeeder extends Seeder
      */
     private function seedShopper(array $shopper, array $products, CompleteOrder $completeOrder): User
     {
+        /*
+         * The container entrypoint runs "migrate --seed" on every boot against a
+         * persistent volume, so this runs again on each restart. Purchases are not
+         * something updateOrCreate can reconcile — replaying them would double a
+         * shopper's order count and push them onto badges the profile never meant
+         * them to hold — so an already-seeded shopper is left exactly as they are.
+         */
+        $existing = User::query()->where('email', $shopper['email'])->first();
+
+        if ($existing instanceof User) {
+            return $existing;
+        }
+
         $user = User::factory()->create([
             'name' => $shopper['name'],
             'email' => $shopper['email'],
