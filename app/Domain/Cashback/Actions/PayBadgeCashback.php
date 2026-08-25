@@ -14,6 +14,7 @@ use App\Payments\ValueObjects\Money;
 use App\Payments\ValueObjects\RecipientRegistration;
 use App\Payments\ValueObjects\TransferRequest;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Pays the reward owed for one unlocked badge.
@@ -80,6 +81,13 @@ final class PayBadgeCashback
                 'paid_at' => now(),
             ])->save();
 
+            Log::info('Cashback paid.', [
+                'cashback_id' => $cashback->getKey(),
+                'gateway' => $this->gateway->name(),
+                'gateway_reference' => $result->reference,
+                'amount_minor' => $cashback->amount_minor,
+            ]);
+
             CashbackPaid::dispatch($cashback);
 
             return $cashback;
@@ -89,6 +97,12 @@ final class PayBadgeCashback
         // settle out of band, so the record stays in Processing awaiting a webhook.
         if ($result->pendingSettlement()) {
             $cashback->forceFill(['gateway_reference' => $result->reference])->save();
+
+            Log::info('Cashback accepted by the provider, awaiting settlement.', [
+                'cashback_id' => $cashback->getKey(),
+                'gateway' => $this->gateway->name(),
+                'gateway_reference' => $result->reference,
+            ]);
 
             return $cashback;
         }
@@ -125,6 +139,14 @@ final class PayBadgeCashback
             'failure_reason' => $reason,
             'gateway_reference' => $reference ?? $cashback->gateway_reference,
         ])->save();
+
+        Log::warning('Cashback failed.', [
+            'cashback_id' => $cashback->getKey(),
+            'gateway' => $this->gateway->name(),
+            'gateway_reference' => $cashback->gateway_reference,
+            'attempts' => $cashback->attempts,
+            'reason' => $reason,
+        ]);
 
         CashbackFailed::dispatch($cashback);
 
