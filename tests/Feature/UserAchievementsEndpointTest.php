@@ -5,6 +5,7 @@ use App\Domain\Achievements\Models\UserAchievement;
 use App\Models\User;
 use Database\Seeders\AchievementSeeder;
 use Database\Seeders\BadgeSeeder;
+use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
     $this->seed([AchievementSeeder::class, BadgeSeeder::class]);
@@ -176,6 +177,11 @@ it('404s in json even for a caller that sent no accept header', function () {
     $response->assertNotFound();
 
     expect($response->headers->get('content-type'))->toContain('application/json');
+});
+
+it('is rate limited, because it is unauthenticated', function () {
+    expect(Route::getRoutes()->getByName('users.achievements')->gatherMiddleware())
+        ->toContain('throttle:60,1');
 });
 
 it('never leaks another user\'s progress', function () {

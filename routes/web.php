@@ -14,11 +14,13 @@ Route::get('/', function () {
 |--------------------------------------------------------------------------
 |
 | The brief places this endpoint in the web routes file rather than under an
-| api prefix, so it is registered here.
+| api prefix, so it is registered here. Rate limited because it is unauthenticated:
+| there is no account to suspend if someone walks the user ids.
 |
 */
 
 Route::get('users/{user}/achievements', UserAchievementsController::class)
+    ->middleware('throttle:60,1')
     ->name('users.achievements');
 
 /*
@@ -36,7 +38,9 @@ Route::get('users/{user}/achievements', UserAchievementsController::class)
 */
 
 Route::get('users/{user}/payout-account', [PayoutAccountController::class, 'show'])
+    ->middleware('throttle:60,1')
     ->name('users.payout-account.show');
 
 Route::post('users/{user}/payout-account', [PayoutAccountController::class, 'store'])
+    ->middleware('throttle:20,1')
     ->name('users.payout-account.store');
