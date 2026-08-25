@@ -18,7 +18,25 @@ Then:
 curl http://localhost:8000/users/1/achievements
 ```
 
-The stack brings up an app container, a **queue worker** (achievement unlocking and payouts are queued), and **PostgreSQL 17**. Migrations, the achievement/badge catalogs and a demo store are seeded automatically on boot.
+The stack brings up an app container, a **queue worker** (achievement unlocking and payouts are queued), a **scheduler** (`cashbacks:reconcile` sweeps every five minutes), and **PostgreSQL 17**. Migrations, the achievement/badge catalogs and a demo store are seeded automatically on boot, and re-running `docker compose up` against an existing volume is safe — every seeder is idempotent.
+
+### Configuring the stack
+
+`docker-compose.yml` reads an optional `.env` beside it, so a deployment overrides
+only what it needs:
+
+```dotenv
+APP_PORT=8000
+APP_DEBUG=false                  # a reachable host should not answer with stack traces
+APP_URL=http://your-host:8000
+APP_KEY=base64:...               # shared, so app, queue and scheduler sign alike
+DB_PASSWORD=something-not-secret
+PAYMENTS_GATEWAY=fake            # paystack | flutterwave | monnify, once keys are set
+```
+
+Leave `APP_KEY` unset and each container generates its own on boot, which is fine for
+a single-host demo but not for anything that has to decrypt what another container
+wrote. `php artisan key:generate --show` prints one.
 
 ### What seeding gives you
 
@@ -114,6 +132,12 @@ Registered in `routes/web.php`, as the brief specifies.
 
 `next_available_achievements` returns **at most one achievement per group** — the next rung the user can reach, not every rung above them; groups come back in catalog order, which is alphabetical by group key. `current_badge` is `null` for a user who has not yet earned one. Returns `404` for an unknown user.
 
+The response is a plain array, not an Eloquent resource — a resource wraps it in `data`
+and the brief names these five keys. Errors answer in JSON too, even to a caller that
+sent no `Accept` header, so an unknown user is `404 {"message": "..."}` rather than an
+HTML error page. The route is rate limited to 60 requests a minute: it is
+unauthenticated, so there is no account to suspend if someone walks the user ids.
+
 ---
 
 ## The other endpoints
@@ -207,6 +231,14 @@ re-runs `EvaluateAchievementProgress`. That action is level-based and idempotent
 converges instead of double-awarding — **and it can unlock badges and pay real ₦300
 cashback**, which is why both responses say so.
 
+The same backfill is available from the console, which is what you want when the rung
+arrived through a seeder or a migration rather than through the admin route:
+
+```bash
+php artisan achievements:backfill            # runs here, reports what it granted
+php artisan achievements:backfill --queue    # hands it to the worker instead
+```
+
 `DELETE` is safe: `user_achievements` and `user_badges` snapshot names and thresholds
 at unlock time and hold no foreign key, so removing a catalog row never takes anything
 away from a user who earned it.
@@ -256,33 +288,71 @@ Three things worth knowing:
 
 ## How it works
 
+```mermaid
+flowchart TD
+    subgraph ordering["Ordering"]
+        CO["CompleteOrder"]
+    end
+
+    subgraph achievements["Achievements"]
+        UAFP["UnlockAchievementsForPurchase<br>queued"]
+        EAP["EvaluateAchievementProgress<br>level-based, idempotent"]
+        AU(["AchievementUnlocked<br>achievement_name, user"])
+    end
+
+    subgraph cashback["Cashback"]
+        PCOB["PayCashbackOnBadgeUnlocked<br>queued · backoff 10/30/60/300s"]
+        PBC["PayBadgeCashback"]
+        RECON["cashbacks:reconcile<br>scheduled every 5 min"]
+        SC["SettleCashback"]
+        PAID(["CashbackPaid"])
+        FAILED(["CashbackFailed"])
+    end
+
+    subgraph payments["Payments — shared infrastructure"]
+        GW["PaymentGateway::transfer()"]
+        WH["POST webhooks/payments/{provider}"]
+    end
+
+    CO -- "OrderCompleted<br>after commit" --> UAFP
+    UAFP --> EAP
+    EAP --> AU
+    EAP -- "BadgeUnlocked<br>badge_name, user" --> PCOB
+    PCOB --> PBC
+    PBC --> GW
+    GW -- "success" --> PAID
+    GW -- "failed" --> FAILED
+    GW -- "pending: provider settles out of band" --> WH
+    WH -- "TransferUpdated" --> SC
+    RECON -- "no callback arrived" --> SC
+    SC --> PAID
+    SC --> FAILED
 ```
-CompleteOrder ──> OrderCompleted                        (dispatched after commit)
-                    └─ UnlockAchievementsForPurchase    (queued)
-                         └─ EvaluateAchievementProgress
-                              ├─ AchievementUnlocked { achievement_name, user }
-                              └─ BadgeUnlocked       { badge_name, user }
-                                   └─ PayCashbackOnBadgeUnlocked  (queued, backoff 10/30/60/300s)
-                                        └─ PayBadgeCashback ──> PaymentGateway::transfer()
-                                             └─ CashbackPaid | CashbackFailed
-```
+
+Each arrow crossing a box is an event. No context imports another's actions, which is
+what makes the boxes real rather than decorative — `tests/Unit/ArchitectureTest.php`
+fails if one ever does.
 
 ### Layout
 
 ```
 app/
 ├── Payments/           SHARED infrastructure — any feature that owes a user money
-│   ├── Contracts/PaymentGateway.php
-│   ├── PaymentManager.php               driver resolution
-│   ├── Gateways/                        Http (base), Fake, Paystack, Flutterwave, Monnify
-│   ├── Enums/TransferStatus.php
-│   └── ValueObjects/                    Money, RecipientAccount, TransferRequest, PaymentResult
+│   ├── Contracts/       PaymentGateway, WebhookHandler
+│   ├── PaymentManager   driver resolution · WebhookManager for callbacks
+│   ├── Gateways/        Http (base), Fake, Paystack, Flutterwave, Monnify
+│   ├── Webhooks/        one signature scheme and payload translation per provider
+│   ├── Events/          TransferUpdated
+│   └── ValueObjects/    Money, RecipientAccount, RecipientRegistration,
+│                        AccountResolution, TransferRequest, PaymentResult, TransferUpdate
 └── Domain/
     ├── Ordering/       Order, Product, CompleteOrder, OrderCompleted
     ├── Achievements/   catalog + unlocked models, EvaluateAchievementProgress,
-    │                   BuildUserProgression, ProgressMetric, the two brief events
-    └── Cashback/       Cashback, PayoutAccount, PayBadgeCashback, PayoutStatus,
-                        CashbackPaid/Failed
+    │                   BuildUserProgression, four ProgressMetrics, the two brief
+    │                   events, BackfillAchievementProgress
+    └── Cashback/       Cashback, PayoutAccount, PayBadgeCashback, SettleCashback,
+                        ReconcilePendingCashbacks, AbandonCashback, RegisterPayoutAccount,
+                        PayoutStatus, CashbackPaid/Failed
 ```
 
 ---
@@ -382,6 +452,19 @@ php artisan cashbacks:reconcile              # or --minutes=0 to sweep everythin
 
 It asks each stalled payout's **original** gateway — `cashbacks.gateway`, not whichever is configured today — what became of the reference, and publishes the answer as the same `TransferUpdated` a webhook does, so settlement has exactly one implementation. Nothing is ever re-sent; a sweep only learns what already happened. Scheduled every five minutes in `routes/console.php`, `withoutOverlapping`.
 
+### When the job itself gives up
+
+`PayCashbackOnBadgeUnlocked` retries five times with a 10/30/60/300s backoff. If it is still throwing after the last one, Laravel calls `failed()`, and `AbandonCashback` resolves the row rather than leaving money owed to a real person sitting in `failed_jobs`:
+
+| Row state when the job died | What happens |
+| --- | --- |
+| No row yet | Nothing to resolve; the next `BadgeUnlocked` starts clean |
+| `Pending` | Marked `Failed`, `CashbackFailed` published |
+| `Processing` | **Left alone** — the provider has the instruction and may have paid it. `cashbacks:reconcile` owns this row |
+| `Paid` | Left alone |
+
+Every attempt logs with the same context — `user_id`, `badge_key`, `user_badge_id` — so one payout can be followed end to end through `php artisan pail` or the log.
+
 ```dotenv
 PAYMENTS_GATEWAY=fake
 
@@ -436,8 +519,28 @@ php artisan test --compact --filter=Cashback
 | `AdminCatalogTest` | catalog writes, the rejected unscoreable group, duplicate guards, and deletes that leave earned achievements alone |
 | `AchievementBackfillTest` | a new rung reaching users who already qualify, through to badge and payout; convergence on repeat runs |
 | `DevHarnessTest` | the development harness: validation bounds, route model binding, product reuse, and that it drives the real chain |
+| `ArchitectureTest` | the boundaries this file claims: payments never imports a domain, no context calls another's actions, value objects stay immutable, listeners stay queued |
 
 No test touches a real provider: `PAYMENTS_GATEWAY` defaults to `fake` and the HTTP client is faked.
+
+### Quality gates
+
+Every push runs four gates through `.github/workflows/ci.yml`. All four run locally too:
+
+| Gate | Command | What it defends |
+| --- | --- | --- |
+| Formatting | `composer lint` | one style, so a diff only ever shows a decision |
+| Types | `composer analyse` | PHPStan **level 8** with Larastan, zero errors across `app/`, `database/`, `routes/` and `config/` |
+| Behaviour | `composer test` | the suite above, against real PostgreSQL. `composer test:coverage` adds a coverage floor |
+| Test quality | `composer test:mutate` | a mutation score over `app/Domain`: proof the assertions would *notice* a changed rule, which line coverage cannot give you |
+
+`composer check` runs the first three in order.
+
+The architecture tests deserve their own line. Every structural claim this README makes
+— payments never reaching into a domain, contexts speaking only through events, value
+objects staying immutable, listeners staying queued — is asserted in
+`tests/Unit/ArchitectureTest.php`. The description cannot drift away from the code
+without the suite going red.
 
 ---
 
@@ -446,6 +549,9 @@ No test touches a real provider: `PAYMENTS_GATEWAY` defaults to `fake` and the H
 - **The app container runs `php artisan serve`.** It is a development server, chosen so `docker compose up` works on any machine with no extra configuration. Production would run PHP-FPM behind nginx, or Laravel Octane, with `config:cache`, `route:cache` and `event:cache` in the image.
 - **The user endpoints are unauthenticated.** The brief specifies no auth and the project has no auth scaffolding. In production the achievements read would sit behind `auth:sanctum` with a policy restricting a user to their own progress, and `POST /users/{user}/payout-account` would be the user's own route rather than one that accepts any id — it writes bank details, which is a materially bigger exposure than reading progress. It is open here as a deliberate scope decision, not an oversight.
 - **`/admin/*` uses the environment as its authorisation.** Registered only under `local` and `testing`, which is a route guard standing in for a policy. It is honest about what it is: on a deployed instance the catalog cannot be edited at all. The real answer is token or session auth plus a policy, which the project has no scaffolding for.
-- **A pending transfer now settles by webhook,** but nothing sweeps for stragglers. If a provider never calls back — or the callback is lost — the cashback sits in `Processing` indefinitely. `GET /admin/cashbacks?status=processing&stale_minutes=60` surfaces those rows, but a scheduled reconciliation job that polls the provider for their real status is still missing.
+- **A pending transfer settles by webhook, with `cashbacks:reconcile` as the backstop.** The sweep runs every five minutes, asks the provider what became of payouts left in `Processing` past a grace period, and never re-sends — it only asks. What is still missing is an alert when a row survives many sweeps: today it stays visible through `GET /admin/cashbacks?status=processing&stale_minutes=60` and nowhere else.
 - **A backfill runs inline over every user.** `BackfillAchievementProgress` chunks, so memory is bounded, but it is one queued job walking the whole table. At a few million users that wants splitting into per-chunk jobs, and rate-limiting the payouts it can trigger.
+- **The endpoint is not cached.** Progression is five queries against indexed columns and changes on every purchase, so a cache would mostly serve invalidation work. `UserAchievementsEndpointTest` pins the query count instead: the number must not grow with a user's history.
+- **The public routes are rate limited** (`throttle:60,1`, and 20/min for the payout-account write) because they are unauthenticated — there is no account to suspend if someone walks the user ids.
+- **The entrypoint writes the container environment into `.env`.** `php artisan serve` spawns the built-in server in a child process whose environment it strips down to `ServeCommand::$passthroughVariables` — `APP_ENV`, `PATH` and some debugger hooks. Everything Compose sets is blanked on the way in, so without this the served application reads `.env.example`'s `DB_HOST=127.0.0.1` and 500s on every request while `artisan migrate`, which runs in the parent process, succeeds. Materialising the values into `.env` is what makes both agree. A production image running PHP-FPM would not need it, and would `config:cache` instead.
 - **Event discovery is scoped to `app/Domain/*/Listeners`.** Scanning whole contexts would also register Action classes as listeners, since discovery keys off any `handle(TypedArg)` signature.
