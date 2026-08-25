@@ -1,5 +1,14 @@
 <?php
 
+use App\Domain\Cashback\Models\PayoutAccount;
+use App\Domain\Ordering\Actions\CompleteOrder;
+use App\Domain\Ordering\Models\Order;
+use App\Domain\Ordering\Models\Product;
+use App\Models\User;
+use App\Payments\Contracts\PaymentGateway;
+use App\Payments\Gateways\FakeGateway;
+use App\Payments\PaymentManager;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /*
@@ -14,7 +23,7 @@ use Tests\TestCase;
 */
 
 pest()->extend(TestCase::class)
- // ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
+    ->use(RefreshDatabase::class)
     ->in('Feature');
 
 /*
@@ -43,7 +52,51 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A user with a bank account on file, which is the precondition for any payout.
+ */
+function userWithPayoutAccount(array $attributes = []): User
 {
-    // ..
+    $user = User::factory()->create($attributes);
+
+    PayoutAccount::factory()->default()->for($user)->create();
+
+    return $user;
+}
+
+/**
+ * Complete $count purchases for a user, driving the real Ordering entry point so the
+ * whole event chain runs.
+ *
+ * Every order is the same cheap item bought today, which keeps the spend, variety and
+ * loyalty progressions out of reach: a test that asks for "5 purchases" gets exactly
+ * the purchases group and nothing incidental.
+ */
+function completePurchases(User $user, int $count): void
+{
+    $product = Product::factory()->create();
+    $completeOrder = app(CompleteOrder::class);
+
+    foreach (range(1, $count) as $ignored) {
+        $completeOrder->handle(
+            Order::factory()->worth(10_000)->for($user)->for($product)->create()
+        );
+    }
+}
+
+/**
+ * Swap the container's gateway for a FakeGateway the test can assert against.
+ *
+ * Registered with the manager as well as against the contract, because code that
+ * settles an existing payout resolves the gateway by the name stored on it rather
+ * than taking whichever one is configured.
+ */
+function fakeGateway(): FakeGateway
+{
+    $gateway = new FakeGateway;
+
+    app()->instance(PaymentGateway::class, $gateway);
+    app(PaymentManager::class)->extend('fake', fn (): FakeGateway => $gateway);
+
+    return $gateway;
 }
