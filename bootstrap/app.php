@@ -22,16 +22,21 @@ return Application::configure(basePath: dirname(__DIR__))
             // check is what authenticates them.
             Route::group([], base_path('routes/webhooks.php'));
 
-            // The development harness is never part of the deployed surface: it can
-            // mint users and complete purchases, which production must not expose.
-            // "testing" is included so the harness itself stays under test. Binding
-            // substitution is still needed here, or a route parameter arrives as a
-            // raw string instead of a model.
+            // The rest are never part of the deployed surface. The dev harness can
+            // mint users and complete purchases; the admin routes rewrite the catalog
+            // and can trigger real payouts. "testing" is included so both stay under
+            // test. Binding substitution is still needed here, or a route parameter
+            // arrives as a raw string instead of a model.
             if (app()->environment('local', 'testing')) {
                 Route::middleware(SubstituteBindings::class)
                     ->prefix('dev')
                     ->name('dev.')
                     ->group(base_path('routes/dev.php'));
+
+                Route::middleware(SubstituteBindings::class)
+                    ->prefix('admin')
+                    ->name('admin.')
+                    ->group(base_path('routes/admin.php'));
             }
         },
     )
