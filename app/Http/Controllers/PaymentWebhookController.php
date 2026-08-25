@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Responses\ErrorCode;
 use App\Payments\Events\TransferUpdated;
 use App\Payments\WebhookManager;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +25,7 @@ class PaymentWebhookController extends Controller
         $handler = $webhooks->for($provider);
 
         if ($handler === null) {
-            return response()->json(['message' => "Unknown payment provider [{$provider}]."], 404);
+            return ErrorCode::UnknownPaymentProvider->response("Unknown payment provider [{$provider}].");
         }
 
         if (! $handler->verify($request->getContent(), $request->headers->all())) {
@@ -33,7 +34,7 @@ class PaymentWebhookController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            return response()->json(['message' => 'Invalid signature.'], 401);
+            return ErrorCode::InvalidWebhookSignature->response();
         }
 
         $update = $handler->parse($this->decode($request));

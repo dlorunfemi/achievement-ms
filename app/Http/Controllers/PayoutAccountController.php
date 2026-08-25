@@ -3,7 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Cashback\Actions\RegisterPayoutAccount;
-use App\Domain\Cashback\Models\PayoutAccount;
+use App\Http\Resources\PayoutAccountResource;
+use App\Http\Responses\ErrorCode;
 use App\Models\User;
 use App\Payments\Contracts\PaymentGateway;
 use Illuminate\Http\JsonResponse;
@@ -20,10 +21,10 @@ class PayoutAccountController extends Controller
         $account = $user->defaultPayoutAccount();
 
         if ($account === null) {
-            return response()->json(['message' => 'This user has no payout account on file.'], 404);
+            return ErrorCode::ResourceNotFound->response('This user has no payout account on file.');
         }
 
-        return response()->json($this->present($account));
+        return (new PayoutAccountResource($account))->response();
     }
 
     /**
@@ -71,26 +72,8 @@ class PayoutAccountController extends Controller
             (bool) ($attributes['is_default'] ?? true),
         );
 
-        return response()->json(
-            $this->present($account),
-            $account->wasRecentlyCreated ? 201 : 200,
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function present(PayoutAccount $account): array
-    {
-        return [
-            'id' => $account->getKey(),
-            'user_id' => $account->user_id,
-            'bank_code' => $account->bank_code,
-            'bank_name' => $account->bank_name,
-            'account_number' => $account->account_number,
-            'account_name' => $account->account_name,
-            'currency' => $account->currency,
-            'is_default' => $account->is_default,
-        ];
+        return (new PayoutAccountResource($account))
+            ->response()
+            ->setStatusCode($account->wasRecentlyCreated ? 201 : 200);
     }
 }

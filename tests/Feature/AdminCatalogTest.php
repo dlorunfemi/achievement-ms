@@ -221,8 +221,9 @@ describe('cashbacks', function () {
         completePurchases($user, 1);
 
         $this->postJson(route('admin.cashbacks.retry', $user->cashbacks()->sole()))
-            ->assertOk()
-            ->assertJsonPath('message', 'Already paid.');
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Already paid.')
+            ->assertJsonPath('code', 'payout_already_paid');
 
         expect($this->gateway->transferCount())->toBe(1);
     });

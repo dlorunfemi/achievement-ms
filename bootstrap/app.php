@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Exceptions\ApiExceptionRenderer;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -57,4 +58,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request): bool => ! $request->is('/')
         );
+
+        // One renderer decides the shape of every failure, so a status no controller
+        // wrote a branch for — 405 from the router, 429 from the throttle — answers
+        // with the same "message" and "code" pair as a hand-written conflict does.
+        $exceptions->render(new ApiExceptionRenderer);
     })->create();

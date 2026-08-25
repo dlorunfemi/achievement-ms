@@ -2,10 +2,12 @@
 
 use App\Domain\Achievements\Contracts\ProgressMetric;
 use App\Http\Controllers\Controller;
+use App\Http\Responses\ErrorCode;
 use App\Payments\Contracts\PaymentGateway;
 use App\Payments\Contracts\WebhookHandler;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Resources\Json\JsonResource;
 
 /*
 |--------------------------------------------------------------------------
@@ -110,6 +112,19 @@ arch('controllers are thin http adapters')
     ->toHaveSuffix('Controller')
     ->toExtend(Controller::class)
     ->ignoring(Controller::class);
+
+arch('every response shape is a resource, so no controller hand-rolls one again')
+    ->expect('App\\Http\\Resources')
+    ->toExtend(JsonResource::class)
+    ->toHaveSuffix('Resource');
+
+arch('every failure the api reports comes from the one error vocabulary')
+    ->expect(ErrorCode::class)
+    ->toBeEnum();
+
+arch('the error vocabulary is the only place a status code is decided')
+    ->expect('App\\Http\\Exceptions')
+    ->toHaveSuffix('Renderer');
 
 arch('no debugging left behind')
     ->expect(['dd', 'dump', 'ray', 'var_dump', 'print_r'])
