@@ -5,6 +5,7 @@ use App\Domain\Achievements\Models\UserAchievement;
 use App\Models\User;
 use Database\Seeders\AchievementSeeder;
 use Database\Seeders\BadgeSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 beforeEach(function () {
@@ -182,6 +183,33 @@ it('404s in json even for a caller that sent no accept header', function () {
 it('is rate limited, because it is unauthenticated', function () {
     expect(Route::getRoutes()->getByName('users.achievements')->gatherMiddleware())
         ->toContain('throttle:60,1');
+});
+
+it('costs the same number of queries however much history a user has', function () {
+    $light = $this->user;
+    completePurchases($light, 1);
+
+    $heavy = userWithPayoutAccount();
+    completePurchases($heavy, 10);
+
+    $queriesFor = function (User $user): int {
+        // Warm anything the first request in a process resolves lazily, so the
+        // comparison is between two identical steady-state requests.
+        $this->getJson(route('users.achievements', $user))->assertOk();
+
+        $count = 0;
+        DB::listen(function () use (&$count): void {
+            $count++;
+        });
+
+        $this->getJson(route('users.achievements', $user))->assertOk();
+
+        return $count;
+    };
+
+    // Equal counts are the point: the progression is built from aggregates, so a user
+    // with ten times the history must not cost ten times the queries.
+    expect($queriesFor($heavy))->toBe($queriesFor($light));
 });
 
 it('never leaks another user\'s progress', function () {
