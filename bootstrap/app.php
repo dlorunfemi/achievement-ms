@@ -15,7 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // The payout-account write lives in routes/web.php beside the endpoint the
+        // brief specifies, but it is a JSON call from a client with no session and no
+        // cookie to protect. There is nothing for a CSRF token to defend here.
+        $middleware->validateCsrfTokens(except: [
+            'users/*/payout-account',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
