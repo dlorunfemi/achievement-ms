@@ -13,6 +13,14 @@ return new class extends Migration
     {
         Schema::create('badges', function (Blueprint $table) {
             $table->id();
+            $table->string('key')->unique();
+            $table->string('name');
+
+            /**
+             * The total number of unlocked achievements required to earn this badge.
+             * The starter badge has a threshold of 0.
+             */
+            $table->unsignedInteger('threshold')->unique();
             $table->timestamps();
         });
     }

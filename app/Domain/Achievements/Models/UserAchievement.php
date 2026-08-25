@@ -1,15 +1,29 @@
 <?php
 
-namespace App\Models;
+namespace App\Domain\Achievements\Models;
 
+use App\Models\User;
+use Database\Factories\UserAchievementFactory;
+use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * An achievement a user has unlocked. The catalog columns are snapshotted at unlock
+ * time so later edits to the Achievement definition never rewrite history.
+ */
+#[UseFactory(UserAchievementFactory::class)]
 class UserAchievement extends Model
 {
-    /** @use HasFactory<\Database\Factories\UserAchievementFactory> */
+    /** @use HasFactory<UserAchievementFactory> */
     use HasFactory;
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
     protected $fillable = [
         'user_id',
         'achievement_key',
@@ -20,6 +34,8 @@ class UserAchievement extends Model
     ];
 
     /**
+     * Get the attributes that should be cast.
+     *
      * @return array<string, string>
      */
     protected function casts(): array
