@@ -2,14 +2,12 @@
 
 namespace App\Domain\Achievements\Models;
 
-use App\Domain\Cashback\Models\Cashback;
 use App\Models\User;
 use Database\Factories\UserBadgeFactory;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A badge a user has earned. Unique per user and badge, which is what makes the
@@ -53,13 +51,5 @@ class UserBadge extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
-    }
-
-    /**
-     * @return HasOne<Cashback, $this>
-     */
-    public function cashbackPayout(): HasOne
-    {
-        return $this->hasOne(Cashback::class);
     }
 }

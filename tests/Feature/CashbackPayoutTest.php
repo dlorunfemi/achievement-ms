@@ -184,8 +184,7 @@ it('links the payout to the badge and the user', function () {
     $cashback = payFor($this->userBadge);
 
     expect($cashback->userBadge->is($this->userBadge))->toBeTrue()
-        ->and($cashback->user->is($this->user))->toBeTrue()
-        ->and($this->userBadge->cashbackPayout->is($cashback))->toBeTrue();
+        ->and($cashback->user->is($this->user))->toBeTrue();
 });
 
 it('refuses a second payout row for the same badge at the database level', function () {
