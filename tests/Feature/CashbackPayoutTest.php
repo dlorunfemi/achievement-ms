@@ -6,6 +6,7 @@ use App\Domain\Cashback\Actions\PayBadgeCashback;
 use App\Domain\Cashback\Enums\PayoutStatus;
 use App\Domain\Cashback\Events\CashbackFailed;
 use App\Domain\Cashback\Events\CashbackPaid;
+use App\Domain\Cashback\Listeners\PayCashbackOnBadgeUnlocked;
 use App\Domain\Cashback\Models\Cashback;
 use App\Domain\Cashback\Models\PayoutAccount;
 use App\Models\User;
@@ -215,4 +216,69 @@ it('pays into the account the user most recently made default', function () {
     payFor($this->userBadge);
 
     expect($this->gateway->lastTransfer()->recipient->accountNumber)->toBe('9999999999');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Giving up
+|--------------------------------------------------------------------------
+|
+| What happens after the last retry. A payout left half-finished is money owed to a
+| real person, so it must not simply disappear into failed_jobs.
+|
+*/
+
+function abandon(UserBadge $userBadge, string $reason = 'the queue gave up'): void
+{
+    app(PayCashbackOnBadgeUnlocked::class)->failed(
+        new BadgeUnlocked($userBadge->badge_name, $userBadge->user, $userBadge),
+        new RuntimeException($reason),
+    );
+}
+
+it('marks a payout failed once the queue has exhausted its retries', function () {
+    Event::fake([CashbackFailed::class]);
+
+    $cashback = Cashback::factory()->for($this->userBadge)->create([
+        'user_id' => $this->user->getKey(),
+        'status' => PayoutStatus::Pending,
+    ]);
+
+    abandon($this->userBadge, 'provider unreachable');
+
+    expect($cashback->refresh()->status)->toBe(PayoutStatus::Failed)
+        ->and($cashback->failure_reason)->toBe('provider unreachable');
+
+    Event::assertDispatched(CashbackFailed::class);
+});
+
+it('leaves an in-flight transfer for the reconcile sweep instead of failing it', function () {
+    Event::fake([CashbackFailed::class]);
+
+    // Processing means the provider has the instruction and may already have paid it.
+    // Calling that a failure would report money that did move as never sent.
+    $cashback = Cashback::factory()->for($this->userBadge)->processing()->create([
+        'user_id' => $this->user->getKey(),
+    ]);
+
+    abandon($this->userBadge);
+
+    expect($cashback->refresh()->status)->toBe(PayoutStatus::Processing);
+
+    Event::assertNotDispatched(CashbackFailed::class);
+});
+
+it('never reopens a payout that already went out', function () {
+    $cashback = payFor($this->userBadge);
+
+    abandon($this->userBadge);
+
+    expect($cashback->refresh()->status)->toBe(PayoutStatus::Paid)
+        ->and($cashback->failure_reason)->toBeNull();
+});
+
+it('copes with a job that died before it opened a payout row', function () {
+    abandon($this->userBadge);
+
+    expect(Cashback::count())->toBe(0);
 });
