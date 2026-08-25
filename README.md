@@ -132,11 +132,65 @@ Registered in `routes/web.php`, as the brief specifies.
 
 `next_available_achievements` returns **at most one achievement per group** — the next rung the user can reach, not every rung above them; groups come back in catalog order, which is alphabetical by group key. `current_badge` is `null` for a user who has not yet earned one. Returns `404` for an unknown user.
 
-The response is a plain array, not an Eloquent resource — a resource wraps it in `data`
-and the brief names these five keys. Errors answer in JSON too, even to a caller that
-sent no `Accept` header, so an unknown user is `404 {"message": "..."}` rather than an
-HTML error page. The route is rate limited to 60 requests a minute: it is
-unauthenticated, so there is no account to suspend if someone walks the user ids.
+The response is a plain array — the brief names these five keys, so no envelope wraps
+them. `JsonResource::withoutWrapping()` is set application-wide in `AppServiceProvider`,
+which makes that structural rather than a habit: no resource anywhere can reintroduce a
+`data` key. Errors answer in JSON too, even to a caller that sent no `Accept` header,
+so an unknown user is a JSON `404` rather than an HTML error page. The route is rate
+limited to 60 requests a minute: it is unauthenticated, so there is no account to
+suspend if someone walks the user ids.
+
+---
+
+## The response contract
+
+Success payloads are flat and endpoint-specific; the shapes that repeat live in
+`app/Http/Resources` so no controller hand-rolls one twice. **Every failure, anywhere in
+the application, answers with the same two keys:**
+
+```json
+{ "message": "No user matches [999999].", "code": "resource_not_found" }
+```
+
+`message` is a sentence for whoever reads the log. `code` is what a client branches on —
+matching an English string to decide whether to retry is how a copy edit becomes an
+outage. A `422` adds Laravel's usual `errors` map; a refused conflict adds the row it
+declined to act on. Nothing else is added.
+
+| `code` | Status | Raised when |
+| --- | --- | --- |
+| `validation_failed` | 422 | Input the endpoint rejects, including an account the bank cannot resolve |
+| `resource_not_found` | 404 | Unknown user, cashback, or route |
+| `method_not_allowed` | 405 | Wrong verb for a route |
+| `too_many_requests` | 429 | Rate limit tripped; `Retry-After` is preserved |
+| `unauthenticated` / `forbidden` | 401 / 403 | Reserved — the brief specifies no auth |
+| `server_error` | 500 | Anything unplanned |
+| `payout_in_flight` | 409 | Retrying a transfer the provider is still settling |
+| `payout_already_paid` | 409 | Retrying a payout that has already gone out |
+| `payout_account_missing` | 422 | A payout is owed to a user with no bank account on file |
+| `unknown_payment_provider` | 404 | A webhook for a provider that is not configured |
+| `invalid_webhook_signature` | 401 | A webhook whose signature does not verify |
+
+The vocabulary is the enum `App\Http\Responses\ErrorCode`, which owns each code's HTTP
+status so the two cannot drift apart between one controller and the next. Adding a
+failure mode is a case plus a line in `status()`.
+
+**One renderer produces all of them.** `App\Http\Exceptions\ApiExceptionRenderer` is
+registered in `bootstrap/app.php`, which is what extends the contract to the responses
+nobody writes by hand — a `405` from the router, a `429` from the throttle middleware, an
+uncaught exception. Those are precisely the ones that would otherwise answer in Laravel's
+default shape and quietly break a client's error handling.
+
+Two things it deliberately does. A binding failure is **rebuilt, not echoed**: Laravel's
+own message is `No query results for model [App\Models\User] 999999`, and these
+endpoints are public, so the model class is stripped and the message becomes
+`No user matches [999999].` And an unplanned `500` withholds the exception message unless
+`APP_DEBUG` is on, because exception strings routinely carry a query, a path or a key.
+
+The 409s are worth their own note: both refusals in `POST /admin/cashbacks/{cashback}/retry`
+are conflicts rather than errors. The request was understood and deliberately not acted
+on, because re-sending a transfer the provider already holds is how a user gets paid
+twice.
 
 ---
 
