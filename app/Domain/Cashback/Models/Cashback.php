@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * The ₦300 reward owed for an unlocked badge.
@@ -17,6 +18,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * The row is created before the gateway is called and carries an idempotency key
  * derived from the user badge, so a retried job or a replayed BadgeUnlocked event
  * resolves to the same record and can never pay the user twice.
+ *
+ * @property PayoutStatus $status
+ * @property Carbon|null $paid_at
+ * @property-read User $user
+ * @property-read UserBadge $userBadge
  */
 #[UseFactory(CashbackFactory::class)]
 class Cashback extends Model

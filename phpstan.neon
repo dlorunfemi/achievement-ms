@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+        - database
+        - routes
+        - config
+
+    excludePaths:
+        # Stock framework config: env() is untyped by design and this file is not ours.
+        - config/filesystems.php
+
+    level: 8
+
+    # Framework docblocks are optimistic — Seeder::$command is documented as always
+    # present, for one — so a docblock alone is not proof a value cannot be null.
+    treatPhpDocTypesAsCertain: false

@@ -6,6 +6,7 @@ use App\Domain\Achievements\Models\Achievement;
 use App\Domain\Achievements\Models\Badge;
 use App\Domain\Achievements\ValueObjects\Progression;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Assembles the read model behind users/{user}/achievements.
@@ -15,11 +16,16 @@ final class BuildUserProgression
     public function handle(User $user): Progression
     {
         $held = $user->achievements()->orderBy('unlocked_at')->orderBy('id')->get();
-        $heldKeys = $held->pluck('achievement_key')->all();
+
+        /** @var list<string> $heldKeys */
+        $heldKeys = $held->pluck('achievement_key')->values()->all();
+
+        /** @var list<string> $heldNames */
+        $heldNames = $held->pluck('achievement_name')->values()->all();
         $heldCount = $held->count();
 
         return new Progression(
-            unlockedAchievements: $held->pluck('achievement_name')->values()->all(),
+            unlockedAchievements: $heldNames,
             nextAvailableAchievements: $this->nextAchievementPerGroup($heldKeys),
             currentBadge: $this->currentBadgeName($user),
             nextBadge: $this->nextBadge($heldCount)?->name,
@@ -36,14 +42,18 @@ final class BuildUserProgression
      */
     private function nextAchievementPerGroup(array $heldKeys): array
     {
-        return Achievement::query()
+        /** @var list<string> $next */
+        $next = Achievement::query()
             ->whereNotIn('key', $heldKeys)
             ->inProgressionOrder()
             ->get()
             ->groupBy('group_key')
-            ->map(fn ($group): string => $group->first()->name)
+            // groupBy never yields an empty group, so the first rung always exists.
+            ->map(fn (Collection $group): string => $group->firstOrFail()->name)
             ->values()
             ->all();
+
+        return $next;
     }
 
     private function currentBadgeName(User $user): ?string

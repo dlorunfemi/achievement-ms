@@ -23,7 +23,7 @@ class CashbackFactory extends Factory
 
         return [
             'user_badge_id' => $userBadge,
-            'user_id' => fn (array $attributes): int => UserBadge::find($attributes['user_badge_id'])->user_id,
+            'user_id' => fn (array $attributes): int => UserBadge::findOrFail((int) $attributes['user_badge_id'])->user_id,
             'amount_minor' => 30_000,
             'currency' => 'NGN',
             'status' => PayoutStatus::Pending,

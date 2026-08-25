@@ -45,6 +45,9 @@ class Achievement extends Model
 
     /**
      * Catalog order: by group, then by ascending difficulty.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     #[Scope]
     protected function inProgressionOrder(Builder $query): Builder

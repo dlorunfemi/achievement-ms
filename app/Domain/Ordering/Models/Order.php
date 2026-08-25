@@ -11,7 +11,15 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * A single purchase. Only a completed order counts toward a user's progression.
+ *
+ * @property OrderStatus $status
+ * @property Carbon|null $placed_at
+ * @property-read User $user
+ */
 #[UseFactory(OrderFactory::class)]
 class Order extends Model
 {
@@ -61,6 +69,9 @@ class Order extends Model
 
     /**
      * Orders that count toward a user's purchase achievements.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     #[Scope]
     protected function completed(Builder $query): Builder

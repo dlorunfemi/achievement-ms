@@ -8,10 +8,14 @@ use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * A badge a user has earned. Unique per user and badge, which is what makes the
  * ₦300 cashback exactly-once.
+ *
+ * @property Carbon|null $unlocked_at
+ * @property-read User $user
  */
 #[UseFactory(UserBadgeFactory::class)]
 class UserBadge extends Model

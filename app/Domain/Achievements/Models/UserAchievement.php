@@ -8,10 +8,14 @@ use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * An achievement a user has unlocked. The catalog columns are snapshotted at unlock
  * time so later edits to the Achievement definition never rewrite history.
+ *
+ * @property Carbon|null $unlocked_at
+ * @property-read User $user
  */
 #[UseFactory(UserAchievementFactory::class)]
 class UserAchievement extends Model

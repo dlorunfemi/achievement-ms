@@ -18,6 +18,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Owned by the Cashback context, which is what puts money in it. The shared Payments
  * module knows only the RecipientAccount value object this maps to, so the dependency
  * runs domain -> infrastructure and never back.
+ *
+ * @property bool $is_default
+ * @property array<string, string>|null $recipient_tokens
+ * @property-read User $user
  */
 #[UseFactory(PayoutAccountFactory::class)]
 class PayoutAccount extends Model
@@ -67,6 +71,9 @@ class PayoutAccount extends Model
     /**
      * Preferred accounts first, then most recently added, so the first row of this
      * ordering is always the account to pay.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     #[Scope]
     protected function preferred(Builder $query): Builder

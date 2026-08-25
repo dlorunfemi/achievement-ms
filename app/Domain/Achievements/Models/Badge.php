@@ -44,6 +44,9 @@ class Badge extends Model
 
     /**
      * Catalog order: easiest badge first.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     #[Scope]
     protected function inProgressionOrder(Builder $query): Builder

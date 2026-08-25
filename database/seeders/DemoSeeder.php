@@ -224,7 +224,7 @@ class DemoSeeder extends Seeder
             $user->name,
             $user->orders()->completed()->count(),
             $user->achievements()->count(),
-            $user->badges()->orderByDesc('threshold')->first()?->badge_name ?? '—',
+            $user->badges()->orderByDesc('threshold')->value('badge_name') ?? '—',
             $user->cashbacks()->count(),
         ));
     }
