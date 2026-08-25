@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
 
@@ -49,5 +50,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Everything here answers in JSON, including the brief's endpoint — it lives in
+        // routes/web.php because the brief puts it there, not because it serves pages.
+        // A caller that forgets an Accept header should still get a JSON 404, not
+        // Laravel's HTML error page. The welcome page is the one exception.
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request): bool => ! $request->is('/')
+        );
     })->create();

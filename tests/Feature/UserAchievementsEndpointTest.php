@@ -168,6 +168,16 @@ it('404s for a user that does not exist', function () {
     $this->getJson('/users/999999/achievements')->assertNotFound();
 });
 
+it('404s in json even for a caller that sent no accept header', function () {
+    // The route lives in routes/web.php because the brief puts it there, not because
+    // it serves pages: a plain curl must not get back an HTML error page.
+    $response = $this->get('/users/999999/achievements');
+
+    $response->assertNotFound();
+
+    expect($response->headers->get('content-type'))->toContain('application/json');
+});
+
 it('never leaks another user\'s progress', function () {
     completePurchases($this->user, 5);
     $other = User::factory()->create();
