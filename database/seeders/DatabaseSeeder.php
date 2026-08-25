@@ -16,5 +16,11 @@ class DatabaseSeeder extends Seeder
             AchievementSeeder::class,
             BadgeSeeder::class,
         ]);
+
+        // A store to look at. DemoSeeder guards itself, but there is no reason to
+        // even reach for it on a production deploy.
+        if (! app()->isProduction()) {
+            $this->call(DemoSeeder::class);
+        }
     }
 }
