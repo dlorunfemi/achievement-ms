@@ -19,15 +19,39 @@
     </source>
     <php>
         <!--
-            force="true" on everything that defines how a test behaves. A plain
-            <env> loses to a variable that is already set in the real environment,
-            so inside the Docker stack the container's QUEUE_CONNECTION=database
-            silently beat "sync": every queued listener went unrun and two thirds
-            of the suite failed for reasons that had nothing to do with the code.
+            Everything that defines how a test behaves is declared twice, as
+            <server> as well as <env>, because <env> alone cannot win inside the
+            Docker stack.
 
-            DB_DATABASE is deliberately left unforced, so a run can be pointed at
-            another database — which is what the compose stack does.
+            Laravel reads configuration through phpdotenv's default adapters, and
+            the first of those is $_SERVER. PHPUnit's <env> writes putenv() and
+            $_ENV — even with force="true" it never touches $_SERVER — so the
+            container's own QUEUE_CONNECTION=database silently beat "sync": every
+            queued listener went unrun and two thirds of the suite failed for
+            reasons that had nothing to do with the code. <server> writes $_SERVER
+            unconditionally, which is the layer that actually decides.
+
+            DB_DATABASE is the one deliberate omission from the <server> block, so
+            a run can still be pointed at another database from the outside — which
+            is exactly what the compose stack does:
+
+              docker compose exec -e DB_DATABASE=bumpa_db_test app php artisan test
         -->
+        <server name="APP_ENV" value="testing"/>
+        <server name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <server name="BCRYPT_ROUNDS" value="4"/>
+        <server name="BROADCAST_CONNECTION" value="null"/>
+        <server name="CACHE_STORE" value="array"/>
+        <server name="DB_CONNECTION" value="pgsql"/>
+        <server name="DB_URL" value=""/>
+        <server name="MAIL_MAILER" value="array"/>
+        <server name="QUEUE_CONNECTION" value="sync"/>
+        <server name="SESSION_DRIVER" value="array"/>
+        <server name="PAYMENTS_GATEWAY" value="fake"/>
+        <server name="PULSE_ENABLED" value="false"/>
+        <server name="TELESCOPE_ENABLED" value="false"/>
+        <server name="NIGHTWATCH_ENABLED" value="false"/>
+
         <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
         <env name="BCRYPT_ROUNDS" value="4" force="true"/>
