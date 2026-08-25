@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     // Discover listeners in every bounded context, but only inside its Listeners
@@ -13,6 +14,13 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function (): void {
+            // Provider callbacks settle transfers that were accepted but not yet
+            // paid, so these are registered in every environment. Outside the "web"
+            // group because a provider has no CSRF token; the per-provider signature
+            // check is what authenticates them.
+            Route::group([], base_path('routes/webhooks.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // The payout-account write lives in routes/web.php beside the endpoint the
