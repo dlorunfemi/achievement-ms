@@ -54,6 +54,23 @@
             "@php artisan config:clear --ansi",
             "@php artisan test"
         ],
+        "test:coverage": [
+            "@php artisan test --compact --coverage --min=90"
+        ],
+        "test:mutate": [
+            "@php artisan test --mutate --covered-only --class=\"App\\\\Domain\" --min=80"
+        ],
+        "lint": [
+            "@php vendor/bin/pint --test"
+        ],
+        "analyse": [
+            "@php vendor/bin/phpstan analyse --no-progress --memory-limit=1G"
+        ],
+        "check": [
+            "@lint",
+            "@analyse",
+            "@test"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"
