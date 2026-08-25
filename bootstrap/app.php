@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -20,6 +21,18 @@ return Application::configure(basePath: dirname(__DIR__))
             // group because a provider has no CSRF token; the per-provider signature
             // check is what authenticates them.
             Route::group([], base_path('routes/webhooks.php'));
+
+            // The development harness is never part of the deployed surface: it can
+            // mint users and complete purchases, which production must not expose.
+            // "testing" is included so the harness itself stays under test. Binding
+            // substitution is still needed here, or a route parameter arrives as a
+            // raw string instead of a model.
+            if (app()->environment('local', 'testing')) {
+                Route::middleware(SubstituteBindings::class)
+                    ->prefix('dev')
+                    ->name('dev.')
+                    ->group(base_path('routes/dev.php'));
+            }
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {

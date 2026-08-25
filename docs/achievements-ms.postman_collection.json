@@ -1,0 +1,637 @@
+{
+  "info": {
+    "name": "Achievements MS",
+    "description": "Drives the purchase -> achievement -> badge -> cashback flow end to end.\n\nGET users/{user}/achievements is the endpoint the assessment specifies. The payout-account routes sit beside it, and POST webhooks/payments/{provider} is how a transfer the provider accepted but has not settled finally resolves.\n\nThe \"Dev harness\" and \"Admin\" folders are registered only outside production.\n\nOrder of play: Create user -> Complete purchases -> Achievements -> Cashbacks. \"Create user\" stores the new id in the user_id collection variable, so the rest of the requests need no editing.\n\nUnlocking and payouts are queued. On the default database queue a worker must be running (`php artisan queue:work`, or `docker compose up`), otherwise nothing moves.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "cashback_reference",
+      "value": ""
+    },
+    {
+      "key": "fake_webhook_secret",
+      "value": "fake-webhook-secret"
+    }
+  ],
+  "item": [
+    {
+      "name": "Achievements (graded endpoint)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/users/{{user_id}}/achievements",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "users",
+            "{{user_id}}",
+            "achievements"
+          ]
+        },
+        "description": "Returns unlocked_achievements, next_available_achievements (only the next rung per group), current_badge, next_badge and remaining_to_unlock_next_badge."
+      },
+      "response": []
+    },
+    {
+      "name": "Payout account",
+      "item": [
+        {
+          "name": "Register payout account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/payout-account",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users",
+                "{{user_id}}",
+                "payout-account"
+              ]
+            },
+            "description": "Where this user's \u20a6300 badge cashback is sent. Bank codes are provider-specific and are passed to the gateway unchanged, so the code must match the configured provider.\n\nRegistering an account also re-drives any payout that previously failed because the user had nowhere to be paid. Re-posting the same account updates it rather than creating a second one.\n\nUnauthenticated, like the achievements endpoint \u2014 a documented gap, not an oversight.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bank_code\": \"058\",\n  \"bank_name\": \"Guaranty Trust Bank\",\n  \"account_number\": \"0123456789\",\n  \"account_name\": \"Ada Lovelace\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read payout account",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/{{user_id}}/payout-account",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "users",
+                "{{user_id}}",
+                "payout-account"
+              ]
+            },
+            "description": "The account payouts currently go to, or 404 if none is on file."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Settle a transfer (fake provider)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Sign the exact bytes being sent, the way a real provider does.",
+                  "const secret = pm.collectionVariables.get('fake_webhook_secret');",
+                  "const body = pm.request.body.raw",
+                  "    .replace(/{{cashback_reference}}/g, pm.collectionVariables.get('cashback_reference') || '');",
+                  "pm.request.body.raw = body;",
+                  "const sig = CryptoJS.HmacSHA512(body, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'x-fake-signature', value: sig });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/payments/fake",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "payments",
+                "fake"
+              ]
+            },
+            "description": "How a transfer the provider accepted but did not settle finally becomes Paid.\n\nSet cashback_reference to the idempotency_key of a cashback sitting in Processing \u2014 GET admin/cashbacks?status=processing lists them. The pre-request script signs the body with HMAC-SHA512, exactly as the fake provider's handler expects.\n\nReal providers use their own headers: x-paystack-signature (HMAC-SHA512 of the raw body), verif-hash (Flutterwave, a shared secret echoed back), monnify-signature (HMAC-SHA512).\n\nStatus codes are the contract: 401 for a bad signature, 404 for an unknown provider, 202 for anything acknowledged. Never a 500 \u2014 that would put the provider into an infinite redelivery loop.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{cashback_reference}}\",\n  \"status\": \"success\",\n  \"provider_reference\": \"fake_settled_001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forged signature (should 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-fake-signature",
+                "value": "not-a-real-signature"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/payments/fake",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "payments",
+                "fake"
+              ]
+            },
+            "description": "Proof the endpoint cannot be used to mark a payout paid without the secret.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"{{cashback_reference}}\",\n  \"status\": \"success\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Scorable groups",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/metrics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "metrics"
+              ]
+            },
+            "description": "The group_key values an achievement may be created against. A group with no ProgressMetric behind it is unscoreable, so POST admin/achievements refuses it."
+          },
+          "response": []
+        },
+        {
+          "name": "List achievements",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/achievements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "achievements"
+              ]
+            },
+            "description": "The catalog in progression order, plus the groups that can be scored."
+          },
+          "response": []
+        },
+        {
+          "name": "Add achievement",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/achievements",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "achievements"
+              ]
+            },
+            "description": "Adds a rung to an existing progression \u2014 no deploy needed.\n\nThis queues a backfill: users who already qualify unlock it immediately, which can unlock badges and pay real \u20a6300 cashback.\n\nA group_key with no metric is rejected with 422. Adding a whole new progression is a code change: one ProgressMetric class registered in DomainServiceProvider.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"purchases.3\",\n  \"name\": \"3 Purchases\",\n  \"group_key\": \"purchases\",\n  \"threshold\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete achievement",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/achievements/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "achievements",
+                "1"
+              ]
+            },
+            "description": "Removes a catalog row. Achievements users already hold survive \u2014 user_achievements snapshots name, group and threshold at unlock time and holds no foreign key."
+          },
+          "response": []
+        },
+        {
+          "name": "List badges",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "badges"
+              ]
+            },
+            "description": "Badges, easiest first."
+          },
+          "response": []
+        },
+        {
+          "name": "Add badge",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/badges",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "badges"
+              ]
+            },
+            "description": "Badges are pure data \u2014 the threshold counts total unlocked achievements from any group, so no code is ever needed. Also queues a backfill.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"mythic\",\n  \"name\": \"Mythic\",\n  \"threshold\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete badge",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/badges/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "badges",
+                "1"
+              ]
+            },
+            "description": "Badges users already hold, and cashback already paid, are unaffected."
+          },
+          "response": []
+        },
+        {
+          "name": "Cashbacks awaiting settlement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const rows = pm.response.json().cashbacks || [];",
+                  "if (rows.length) {",
+                  "    pm.collectionVariables.set('cashback_reference', rows[0].idempotency_key);",
+                  "    console.log('cashback_reference =', rows[0].idempotency_key);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/cashbacks?status=processing",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "cashbacks"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "processing"
+                }
+              ]
+            },
+            "description": "Payouts the provider accepted and never called back about. This is the reconciliation view.\n\nCaptures the first row's idempotency_key into cashback_reference, so the webhook request can settle it. Drop the status filter to see everything; add stale_minutes=60 to find rows that have been stuck for an hour."
+          },
+          "response": []
+        },
+        {
+          "name": "Retry a failed payout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/cashbacks/1/retry",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "admin",
+                "cashbacks",
+                "1",
+                "retry"
+              ]
+            },
+            "description": "Re-drives a payout. Refused with 409 for one in Processing \u2014 the provider already has that instruction, and re-sending is how a user gets paid twice."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dev harness",
+      "item": [
+        {
+          "name": "1. Create user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', () => pm.response.to.have.status(201));",
+                  "const id = pm.response.json().user.id;",
+                  "pm.collectionVariables.set('user_id', id);",
+                  "console.log('user_id =', id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ada Lovelace\",\n  \"email\": \"ada@bumpa.test\",\n  \"bank_code\": \"058\",\n  \"bank_name\": \"Guaranty Trust Bank\",\n  \"account_number\": \"0123456789\",\n  \"account_name\": \"Ada Lovelace\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/dev/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "users"
+              ]
+            },
+            "description": "Creates a customer and the default payout account cashback needs. Every field is optional \u2014 send an empty body and the factory fills them in. The response id is captured into the user_id variable automatically."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Complete purchases",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"count\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/dev/users/{{user_id}}/purchases",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "users",
+                "{{user_id}}",
+                "purchases"
+              ]
+            },
+            "description": "Runs the real CompleteOrder action `count` times (1-50), publishing OrderCompleted for each. Optional product_id reuses a specific product; otherwise the first product in the catalog is used.\n\nThe progression in the response is a snapshot taken before the queued listeners run \u2014 poll the achievements request for the settled state."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Cashbacks and badges",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/dev/users/{{user_id}}/cashbacks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dev",
+                "users",
+                "{{user_id}}",
+                "cashbacks"
+              ]
+            },
+            "description": "The payout side the graded endpoint does not expose: each unlocked badge and the \u20a6300 transfer it triggered, with gateway reference, idempotency key and status."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/up",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "up"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
