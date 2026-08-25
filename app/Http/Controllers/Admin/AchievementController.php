@@ -6,6 +6,7 @@ use App\Domain\Achievements\Actions\ListScorableGroups;
 use App\Domain\Achievements\Jobs\BackfillAchievementProgress;
 use App\Domain\Achievements\Models\Achievement;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AchievementResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -19,11 +20,9 @@ class AchievementController extends Controller
     {
         return response()->json([
             'scorable_groups' => $scorableGroups->handle(),
-            'achievements' => Achievement::query()
-                ->inProgressionOrder()
-                ->get()
-                ->map(fn (Achievement $achievement): array => $this->present($achievement))
-                ->all(),
+            'achievements' => AchievementResource::collection(
+                Achievement::query()->inProgressionOrder()->get()
+            ),
         ]);
     }
 
@@ -61,7 +60,7 @@ class AchievementController extends Controller
         BackfillAchievementProgress::dispatch();
 
         return response()->json([
-            'achievement' => $this->present($achievement),
+            'achievement' => new AchievementResource($achievement),
             'backfill' => 'Queued. Users who already qualify will unlock it, which can unlock badges and pay cashback.',
         ], 201);
     }
@@ -80,19 +79,5 @@ class AchievementController extends Controller
         return response()->json([
             'message' => 'Removed from the catalog. Achievements users already hold are unaffected.',
         ]);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function present(Achievement $achievement): array
-    {
-        return [
-            'id' => $achievement->getKey(),
-            'key' => $achievement->key,
-            'name' => $achievement->name,
-            'group_key' => $achievement->group_key,
-            'threshold' => $achievement->threshold,
-        ];
     }
 }

@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Dev;
 
 use App\Domain\Achievements\Models\UserBadge;
 use App\Domain\Cashback\Enums\PayoutStatus;
-use App\Domain\Cashback\Models\Cashback;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\CashbackResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 
@@ -30,19 +30,7 @@ class UserCashbacksController extends Controller
                 'threshold' => $badge->threshold,
                 'unlocked_at' => $badge->unlocked_at?->toIso8601String(),
             ])->all(),
-            'cashbacks' => $cashbacks->map(fn (Cashback $cashback): array => [
-                'id' => $cashback->getKey(),
-                'user_badge_id' => $cashback->user_badge_id,
-                'amount_minor' => $cashback->amount_minor,
-                'currency' => $cashback->currency,
-                'status' => $cashback->status->value,
-                'gateway' => $cashback->gateway,
-                'gateway_reference' => $cashback->gateway_reference,
-                'idempotency_key' => $cashback->idempotency_key,
-                'failure_reason' => $cashback->failure_reason,
-                'attempts' => $cashback->attempts,
-                'paid_at' => $cashback->paid_at?->toIso8601String(),
-            ])->all(),
+            'cashbacks' => CashbackResource::collection($cashbacks),
             'total_paid_minor' => $cashbacks->where('status', PayoutStatus::Paid)->sum('amount_minor'),
         ]);
     }

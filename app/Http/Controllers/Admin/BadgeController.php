@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Domain\Achievements\Jobs\BackfillAchievementProgress;
 use App\Domain\Achievements\Models\Badge;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\BadgeResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -14,11 +15,9 @@ class BadgeController extends Controller
     public function index(): JsonResponse
     {
         return response()->json([
-            'badges' => Badge::query()
-                ->inProgressionOrder()
-                ->get()
-                ->map(fn (Badge $badge): array => $this->present($badge))
-                ->all(),
+            'badges' => BadgeResource::collection(
+                Badge::query()->inProgressionOrder()->get()
+            ),
         ]);
     }
 
@@ -44,7 +43,7 @@ class BadgeController extends Controller
         BackfillAchievementProgress::dispatch();
 
         return response()->json([
-            'badge' => $this->present($badge),
+            'badge' => new BadgeResource($badge),
             'backfill' => 'Queued. Users who already qualify will unlock it and be paid the badge cashback.',
         ], 201);
     }
@@ -56,18 +55,5 @@ class BadgeController extends Controller
         return response()->json([
             'message' => 'Removed from the catalog. Badges users already hold, and cashback already paid, are unaffected.',
         ]);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function present(Badge $badge): array
-    {
-        return [
-            'id' => $badge->getKey(),
-            'key' => $badge->key,
-            'name' => $badge->name,
-            'threshold' => $badge->threshold,
-        ];
     }
 }
