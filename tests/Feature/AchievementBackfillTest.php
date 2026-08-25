@@ -9,6 +9,7 @@ use App\Models\User;
 use Database\Seeders\AchievementSeeder;
 use Database\Seeders\BadgeSeeder;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     $this->seed([AchievementSeeder::class, BadgeSeeder::class]);
@@ -131,5 +132,44 @@ describe('the job itself', function () {
         $users->each(function (User $user): void {
             expect($user->achievements()->count())->toBe(1);
         });
+    });
+});
+
+describe('the console command', function () {
+    it('grants what a user already qualifies for and says how much it granted', function () {
+        $user = userWithPayoutAccount();
+        completePurchases($user, 5);
+
+        Achievement::query()->create([
+            'key' => 'purchases.3',
+            'name' => '3 Purchases',
+            'group_key' => 'purchases',
+            'threshold' => 3,
+        ]);
+
+        $this->artisan('achievements:backfill')
+            ->expectsOutputToContain('Granted 1 achievement(s)')
+            ->assertSuccessful();
+
+        expect($user->achievements()->where('achievement_key', 'purchases.3')->exists())->toBeTrue();
+    });
+
+    it('says so when there is nothing to grant', function () {
+        $user = userWithPayoutAccount();
+        completePurchases($user, 1);
+
+        $this->artisan('achievements:backfill')
+            ->expectsOutputToContain('Everyone was already up to date.')
+            ->assertSuccessful();
+    });
+
+    it('can hand the work to the queue instead', function () {
+        Queue::fake();
+
+        $this->artisan('achievements:backfill --queue')
+            ->expectsOutputToContain('Backfill queued.')
+            ->assertSuccessful();
+
+        Queue::assertPushed(BackfillAchievementProgress::class);
     });
 });
