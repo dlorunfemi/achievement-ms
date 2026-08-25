@@ -143,6 +143,9 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
     volumes:
       - pgsql-data:/var/lib/postgresql/data
+      # Creates the database the suite is allowed to drop and rebuild, so running
+      # the tests in the app container cannot take the demo store with it.
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bumpa} -d ${DB_DATABASE:-bumpa_db}"]
       interval: 5s

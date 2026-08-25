@@ -492,7 +492,12 @@ rebuilds every table** in the database named by `DB_DATABASE` in `phpunit.xml` â
 it at a database you are willing to lose.
 
 ```bash
-php artisan test --compact                  # or: docker compose exec app php artisan test
+php artisan test --compact
+
+# In the Docker stack, against the database the compose file creates for the
+# suite to drop and rebuild â€” pointed at bumpa_db it would destroy the demo store:
+docker compose exec -e DB_DATABASE=bumpa_db_test app php artisan test --compact
+
 php artisan test --compact --filter=Cashback
 ```
 
